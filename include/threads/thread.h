@@ -112,7 +112,7 @@ struct thread {
 /* --------------------------------------------------- PROJECT1 : Threads - Priority Scheduling(Priority Invension) --------------------------------------------------- */
 
 /* -------------------------------------------------------- PROJECT2 : User Program - System Call -------------------------------------------------------- */
-	int exit_status; // 스레드 종료 상태 저장 변수 선언(0이면 정상 종료 상태)
+	int exit_status; // 스레드 종료 상태 저장 변수 선언(0 = 정상 종료)
 	struct file **fdt; // 파일 디스크립터 테이블 변수 선언
 	int fd_idx; // 파일 디스크립터 테이블 인덱스 변수 선언
 	struct intr_frame parent_if; // 현재 스레드 if_ 선언

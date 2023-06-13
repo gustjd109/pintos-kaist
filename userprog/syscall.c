@@ -216,7 +216,7 @@ exec (const char *file) {
 
 	// 복사한 파일 이름을 인자로 process_exec() 함수를 호출하고, load에 실패한 경우 -1 반환
 	if (process_exec (fn_copy) == -1) {
-		exit(-1);
+		exit (-1);
 	}
 }
 

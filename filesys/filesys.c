@@ -77,7 +77,7 @@ filesys_create (const char *name, off_t initial_size) {
  * otherwise.
  * Fails if no file named NAME exists,
  * or if an internal memory allocation fails. */
-/* 주어진 이름으로 파일을 엽니다.
+/* 주어진 이름으로 파일을 연다.
    성공하면 새 파일을 반환하거나 null 포인터를 반환합니다.
    그렇지 않으면, NAME이라는 파일이 없거나 내부 메모리 할당에 실패하면 실패합니다. */
 struct file *

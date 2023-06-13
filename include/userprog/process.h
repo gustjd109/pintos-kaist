@@ -11,7 +11,7 @@ void process_exit (void);
 void process_activate (struct thread *next);
 
 /* -------------------------------------------------------- PROJECT2 : User Program - Argument Passing -------------------------------------------------------- */
-void argument_stack (char **argv, int argc, struct intr_frame *_if); // parsing한 arguments를 user stack에 넣어주는 함수 선언
+void argument_stack (char **argv, int argc, struct intr_frame *_if); // 파싱한 인자를 유저 스택에 넣어주는 함수 선언
 /* -------------------------------------------------------- PROJECT2 : User Program - Argument Passing -------------------------------------------------------- */
 
 /* -------------------------------------------------------- PROJECT2 : User Program - System Call -------------------------------------------------------- */

@@ -462,10 +462,10 @@ init_thread (struct thread *t, const char *name, int priority) {
 	t->exit_status = 0; // 스레드 종료 상태 저장 변수 초기화
 	t->fd_idx = 2; // 파일 디스크립터 테이블 인덱스 초기화
 	// 부모와 자식 간 통신을 위한 세마포어 초기화
-	sema_init(&t->load_sema, 0);
-	sema_init(&t->exit_sema, 0);
-	sema_init(&t->wait_sema, 0);
-	list_init(&(t->child_list)); // 자식 리스트 초기화
+	sema_init (&t->load_sema, 0);
+	sema_init (&t->exit_sema, 0);
+	sema_init (&t->wait_sema, 0);
+	list_init (&(t->child_list)); // 자식 리스트 초기화
 /* -------------------------------------------------------- PROJECT2 : User Program - System Call -------------------------------------------------------- */
 }
 
