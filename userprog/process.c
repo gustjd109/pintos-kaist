@@ -427,7 +427,7 @@ load (const char *file_name, struct intr_frame *if_) {
 	bool success = false;
 	int i;
 
-/* -------------------------------------------------------- PROJECT2 : User Program - Argument Passing ------------------------------------------------------- */
+/* -------------------------------------------------------- PROJECT2 : User Program - Argument Passing -------------------------------------------------------- */
 	char *argv[LOADER_ARGS_LEN]; // argument 배열 포인터 변수 선언
 	char *token, *save_ptr; // 토큰과 parsing하고 남은 문자열의 시작주소 포인터 변수 선언
 	int argc = 0; // argument 개수 변수 선언 및 0으로 초기화
