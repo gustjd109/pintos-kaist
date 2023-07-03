@@ -20,6 +20,9 @@
 #include "intrinsic.h"
 #ifdef VM
 #include "vm/vm.h"
+/* ------------------------------------------------------------ PROJECT3 : Virtual Memory - Stack Growth ------------------------------------------------------------ */
+#include "userprog/syscall.h"
+/* ------------------------------------------------------------ PROJECT3 : Virtual Memory - Stack Growth ------------------------------------------------------------ */
 #endif
 
 static void process_cleanup (void);
@@ -101,9 +104,9 @@ process_fork (const char *name, struct intr_frame *if_ UNUSED) {
 	sema_down (&child->load_sema); // 자식이 로드가 완료될 때까지 부모는 대기
 
 	// 자식이 로드되다가 오류로 exit한 경우
-	if (child->exit_status == -2)
+	if (child->exit_status == TID_ERROR)
 	{
-		list_remove (&child->child_elem); // 자식이 종료되었으므로 자식 리스트에서 제거
+		// list_remove (&child->child_elem); // 자식이 종료되었으므로 자식 리스트에서 제거
 		sema_up (&child->exit_sema); // 자식이 종료되고 스케줄링이 이어질 수 있도록 부모에게 시그널 전송
 		return TID_ERROR; // TID_ERROR 반환
 	}
@@ -225,7 +228,7 @@ __do_fork (void *aux) {
 		do_iret (&if_);
 error:
 	sema_up (&current->load_sema);
-	exit (-2);
+	exit (TID_ERROR);
 /* -------------------------------------------------------- PROJECT2 : User Program - System Call -------------------------------------------------------- */
 }
 
@@ -246,6 +249,12 @@ process_exec (void *f_name) { // 문자열 f_name이라는 인자를 입력 받�
 
 	/* We first kill the current context */
 	process_cleanup (); // 새로운 실행 파일을 현재 스레드에 담기 전에 현재 프로세스에 담긴 컨텍스트 삭제(=현재 프로세스에 할당된 page directory와 switch information 삭제)
+
+/* ------------------------------------------------------------ PROJECT3 : Virtual Memory - Anonymous Page ------------------------------------------------------------ */
+// #ifdef VM
+// 	supplemental_page_table_init (&thread_current ()->spt);
+// #endif
+/* ------------------------------------------------------------ PROJECT3 : Virtual Memory - Anonymous Page ------------------------------------------------------------ */
 
 	/* And then load the binary */
 	success = load (file_name, &_if); // _if와 file_name을 현재 프로세스에 load(성공하면 1을, 실패하면 0을 반환) -> 이 함수에 parsing 작업을 추가 구현해야 한다.
@@ -310,6 +319,8 @@ process_exit (void) {
 	file_close (curr->running); // 현재 실행 중인 파일도 닫음
 
 	process_cleanup (); // 프로세스를 클린업
+
+	hash_destroy(&curr->spt.spt_hash, NULL);
 
 	sema_up (&curr->wait_sema); // 자식이 종료될 때까지 대기하고 있는 부모에게 자식이 종료되었다는 시그널 전송
 	sema_down (&curr->exit_sema); // 자식이 부모의 시그널을 기다렸다가, 대기가 풀리고 나면 다른 스레드가 실행
@@ -700,6 +711,7 @@ load_segment (struct file *file, off_t ofs, uint8_t *upage,
 }
 
 /* Create a minimal stack by mapping a zeroed page at the USER_STACK */
+/* USER_STACK에 대해 제로화된 페이지를 매핑하여 최소한의 스택을 생성합니다. */
 static bool
 setup_stack (struct intr_frame *if_) {
 	uint8_t *kpage;
@@ -739,11 +751,28 @@ install_page (void *upage, void *kpage, bool writable) {
  * If you want to implement the function for only project 2, implement it on the
  * upper block. */
 
-static bool
+/* 실행 파일의 내용을 페이지로 지연 로딩하는 함수 */
+bool
 lazy_load_segment (struct page *page, void *aux) {
 	/* TODO: Load the segment from the file */
 	/* TODO: This called when the first page fault occurs on address VA. */
 	/* TODO: VA is available when calling this function. */
+/* ------------------------------------------------------------ PROJECT3 : Virtual Memory - Anonymous Page ------------------------------------------------------------ */
+	struct lazy_load_arg *lazy_load_arg = (struct lazy_load_arg *)aux;
+
+	file_seek (lazy_load_arg->file, lazy_load_arg->ofs); // 파일의 위치를 ofs로 설정
+
+	// 파일을 read_bytes만큼 물리 프레임에 읽어들여 제대로 읽어오면 페이지를 free시키고 false를 반환
+	if (file_read (lazy_load_arg->file, page->frame->kva, lazy_load_arg->read_bytes) != (int) (lazy_load_arg->read_bytes)) {
+		palloc_free_page (page->frame->kva);
+		return false;
+	}
+
+	// 다 읽은 지점부터 zero_bytes만큼 0으로 채움
+	memset (page->frame->kva + lazy_load_arg->read_bytes, 0, lazy_load_arg->zero_bytes);
+	
+	return true;
+/* ------------------------------------------------------------ PROJECT3 : Virtual Memory - Anonymous Page ------------------------------------------------------------ */
 }
 
 /* Loads a segment starting at offset OFS in FILE at address
@@ -760,46 +789,80 @@ lazy_load_segment (struct page *page, void *aux) {
  *
  * Return true if successful, false if a memory allocation error
  * or disk read error occurs. */
+/* 주어진 주소 UPAGE에서 시작하는 파일의 오프셋 OFS에서 세그먼트를 로드합니다.
+   총 READ_BYTES + ZERO_BYTES 바이트의 가상 메모리가 다음과 같이 초기화됩니다:
+   - UPAGE에서 시작하는 READ_BYTES 바이트는 OFS에서 시작하는 파일로부터 읽혀야 합니다.
+   - UPAGE + READ_BYTES에서 시작하는 ZERO_BYTES 바이트는 0으로 초기화되어야 합니다.
+   이 함수에 의해 초기화된 페이지는 WRITABLE이 true인 경우 사용자 프로세스에서 쓰기 가능해야 하며, 그렇지 않으면 읽기 전용이어야 합니다.
+   성공한 경우 true를 반환하고, 메모리 할당 오류 또는 디스크 읽기 오류가 발생한 경우 false를 반환합니다. */
+/* 파일의 내용을 upage에 로드하는 함수 */
 static bool
 load_segment (struct file *file, off_t ofs, uint8_t *upage,
 		uint32_t read_bytes, uint32_t zero_bytes, bool writable) {
-	ASSERT ((read_bytes + zero_bytes) % PGSIZE == 0);
-	ASSERT (pg_ofs (upage) == 0);
-	ASSERT (ofs % PGSIZE == 0);
+	ASSERT ((read_bytes + zero_bytes) % PGSIZE == 0); // read_bytes + zero_bytes가 페이지 크기(PGSIZE)의 배수인지 확인
+	ASSERT (pg_ofs (upage) == 0); // upage가 페이지 정렬이 되어 있는지 확인
+	ASSERT (ofs % PGSIZE == 0); // ofs가 페이지 정렬이 되어 있는지 확인
 
-	while (read_bytes > 0 || zero_bytes > 0) {
+	while (read_bytes > 0 || zero_bytes > 0) { // read_bytes와 zero_bytes가 0보다 큰 동안 반복문 수행
 		/* Do calculate how to fill this page.
 		 * We will read PAGE_READ_BYTES bytes from FILE
 		 * and zero the final PAGE_ZERO_BYTES bytes. */
-		size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
-		size_t page_zero_bytes = PGSIZE - page_read_bytes;
+		/* 이 페이지를 어떻게 채울지 계산해주세요.
+		   우리는 파일에서 PAGE_READ_BYTES 바이트를 읽고, 마지막 PAGE_ZERO_BYTES 바이트를 0으로 초기화할 것입니다. */
+		size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE; // upage에서 읽어야 하는 바이트 수 계산(read_bytes가 PGSIZE보다 작으면 Read_bytes를, 아니면 PGSIZE를 반환)
+		size_t page_zero_bytes = PGSIZE - page_read_bytes; // 0으로 채워야 하는 바이트 수 계산(PGSIZE에서 read_bytes를 뺀 값)
 
 		/* TODO: Set up aux to pass information to the lazy_load_segment. */
-		void *aux = NULL;
-		if (!vm_alloc_page_with_initializer (VM_ANON, upage,
-					writable, lazy_load_segment, aux))
+		/* vm_alloc_page_with_initializer에 제공할 aux 인수로 필요한 보조 값들을 설정해야 한다. */
+/* ------------------------------------------------------------ PROJECT3 : Virtual Memory - Anonymous Page ------------------------------------------------------------ */
+		// void *aux = NULL; // 주석 처리
+		struct lazy_load_arg *lazy_load_arg = (struct lazy_load_arg *) malloc (sizeof (struct lazy_load_arg)); // 파일 내용을 로딩하기 위해 필요한 정보를 포함하는 구조체 생성
+		// 파일의 내용을 로딩할 때 전달할 각 정보 할당
+		lazy_load_arg->file = file;
+		lazy_load_arg->ofs = ofs;
+		lazy_load_arg->read_bytes = page_read_bytes;
+		lazy_load_arg->zero_bytes = page_zero_bytes;
+
+		if (!vm_alloc_page_with_initializer (VM_ANON, upage, writable, lazy_load_segment, lazy_load_arg)) // vm_alloc_page_with_initializer() 함수를 호출하여 대기 중인 객체 생성
 			return false;
+/* ------------------------------------------------------------ PROJECT3 : Virtual Memory - Anonymous Page ------------------------------------------------------------ */
 
 		/* Advance. */
+		// 다음 반복을 위해 읽어들인 만큼 값 갱신
 		read_bytes -= page_read_bytes;
 		zero_bytes -= page_zero_bytes;
 		upage += PGSIZE;
+/* ------------------------------------------------------------ PROJECT3 : Virtual Memory - Anonymous Page ------------------------------------------------------------ */
+		ofs += page_read_bytes;
+/* ------------------------------------------------------------ PROJECT3 : Virtual Memory - Anonymous Page ------------------------------------------------------------ */
 	}
 	return true;
 }
 
 /* Create a PAGE of stack at the USER_STACK. Return true on success. */
+/* USER_STACK에서 스택의 PAGE를 생성합니다. 성공한 경우 true를 반환합니다. */
+/* 스택의 페이지를 생성하는 함수 */
 static bool
 setup_stack (struct intr_frame *if_) {
 	bool success = false;
-	void *stack_bottom = (void *) (((uint8_t *) USER_STACK) - PGSIZE);
+	void *stack_bottom = (void *) (((uint8_t *) USER_STACK) - PGSIZE); // 스택은 아래로 성장하므로, USER_STACK에서 PGSIZE 만큼 아래로 내린 지점(stack_bottom)에서 페이지를 생성
 
-	/* TODO: Map the stack on stack_bottom and claim the page immediately.
-	 * TODO: If success, set the rsp accordingly.
-	 * TODO: You should mark the page is stack. */
-	/* TODO: Your code goes here */
-
+	/* TODO: Map the stack on stack_bottom and claim the page immediately. -> tack_bottom에 스택을 매핑하고 페이지를 즉시 요청하세요.
+	 * TODO: If success, set the rsp accordingly. -> 성공하면, rsp를 그에 맞게 설정하세요.
+	 * TODO: You should mark the page is stack. -> 페이지가 스택임을 표시해야 합니다. */
+/* ------------------------------------------------------------ PROJECT3 : Virtual Memory - Anonymous Page ------------------------------------------------------------ */
+	// 익명 페이지로 만들 UNINIT 페이지를 stack_bottom에서 위로 PGSIZE만큼(1 PAGE) 생성
+	// TYPE에 VM_MARKER_0 flag를 추가함으로써 이 페이지가 STACK에 있다는 것을 표시
+	if (vm_alloc_page_with_initializer(VM_ANON | VM_MARKER_0, stack_bottom, 1, NULL, NULL))
+	{
+		success = vm_claim_page(stack_bottom); // 할당 받은 페이지에 바로 물리 프레임을 매핑
+		// 매핑에 성공하면, rsp를 USER_STACK으로 변경
+		// argument_stack에서 이 위치(rsp)부터 인자를 push하게 됨
+		if (success)
+			if_->rsp = USER_STACK;
+	}
 	return success;
+/* ------------------------------------------------------------ PROJECT3 : Virtual Memory - Anonymous Page ------------------------------------------------------------ */
 }
 #endif /* VM */
 

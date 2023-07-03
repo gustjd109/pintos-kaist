@@ -3,6 +3,10 @@
 #include <stdbool.h>
 #include "threads/palloc.h"
 
+/* -------------------------------------------------------- PROJECT3 : Virtual Memory - Supplemental Page Table -------------------------------------------------------- */
+#include "include/lib/kernel/hash.h" // 해시 구조체 사용을 위한 헤더 추가
+/* -------------------------------------------------------- PROJECT3 : Virtual Memory - Supplemental Page Table -------------------------------------------------------- */
+
 enum vm_type {
 	/* page not initialized */
 	VM_UNINIT = 0,
@@ -46,6 +50,17 @@ struct page {
 	struct frame *frame;   /* Back reference for frame */
 
 	/* Your implementation */
+/* -------------------------------------------------------- PROJECT3 : Virtual Memory - Supplemental Page Table -------------------------------------------------------- */
+	struct hash_elem hash_elem; // 해시 element 추가
+/* -------------------------------------------------------- PROJECT3 : Virtual Memory - Supplemental Page Table -------------------------------------------------------- */
+
+/* -------------------------------------------------------------- PROJECT3 : Virtual Memory - Frame Table -------------------------------------------------------------- */
+	bool writable; // true인 경우(1), 새 페이지는 읽기/쓰기 가능한 페이지이며, 그렇지 않은 경우(0) 읽기 전용
+/* -------------------------------------------------------------- PROJECT3 : Virtual Memory - Frame Table -------------------------------------------------------------- */
+
+/* -------------------------------------------------------- PROJECT3 : Virtual Memory - Memory Mapped Files -------------------------------------------------------- */
+int mapped_page_count; // file_backed_page인 경우, 매핑에 사용한 페이지 개수(매핑 해제 시 사용)
+/* -------------------------------------------------------- PROJECT3 : Virtual Memory - Memory Mapped Files -------------------------------------------------------- */
 
 	/* Per-type data are binded into the union.
 	 * Each function automatically detects the current union */
@@ -63,7 +78,25 @@ struct page {
 struct frame {
 	void *kva;
 	struct page *page;
+
+/* -------------------------------------------------------------- PROJECT3 : Virtual Memory - Frame Table -------------------------------------------------------------- */
+	struct list_elem frame_elem; // frame_table을 위한 list_elem 추가
+/* -------------------------------------------------------------- PROJECT3 : Virtual Memory - Frame Table -------------------------------------------------------------- */
 };
+
+/* -------------------------------------------------------- PROJECT3 : Virtual Memory - Swap In/Out -------------------------------------------------------- */
+struct slot
+{
+	struct page *page;
+	uint32_t slot_no;
+	struct list_elem swap_elem;
+};
+
+struct list swap_table;
+struct list frame_table;
+struct lock swap_table_lock;
+struct lock frame_table_lock;
+/* -------------------------------------------------------- PROJECT3 : Virtual Memory - Swap In/Out -------------------------------------------------------- */
 
 /* The function table for page operations.
  * This is one way of implementing "interface" in C.
@@ -85,6 +118,9 @@ struct page_operations {
  * We don't want to force you to obey any specific design for this struct.
  * All designs up to you for this. */
 struct supplemental_page_table {
+/* -------------------------------------------------------- PROJECT3 : Virtual Memory - Supplemental Page Table -------------------------------------------------------- */
+	struct hash spt_hash; // 해시 구조체 추가
+/* -------------------------------------------------------- PROJECT3 : Virtual Memory - Supplemental Page Table -------------------------------------------------------- */
 };
 
 #include "threads/thread.h"

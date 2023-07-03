@@ -201,10 +201,9 @@ lock_acquire (struct lock *lock) {
 
 /* --------------------------------------------------- PROJECT1 : Threads - Priority Scheduling(Priority Invension) --------------------------------------------------- */
 	struct thread *cur = thread_current ();
-	if (lock->holder) {
+	if (lock->holder != NULL) { //////////////////////////////////////////////////// lock->holder -> lock->holder != NULL ////////////////////////////////////////////////////
         cur->wait_on_lock = lock; // 현재 스레드가 어떤 lock 기다리고 있는지 입력
-        list_insert_ordered(&lock->holder->donations, &cur->donation_elem, 
-			cmp_donate_priority, 0);
+        list_insert_ordered(&lock->holder->donations, &cur->donation_elem, cmp_donate_priority, 0);
         donate_priority(); 	
     }
 /* --------------------------------------------------- PROJECT1 : Threads - Priority Scheduling(Priority Invension) --------------------------------------------------- */

@@ -18,6 +18,8 @@
         "ostream": "c",
         "streambuf": "c",
         "stdbool.h": "c",
-        "interrupt.h": "c"
+        "interrupt.h": "c",
+        "vm(수정).C": "cpp",
+        "memory_resource": "c"
     }
 }

@@ -135,6 +135,9 @@ struct thread {
 #ifdef VM
 	/* Table for whole virtual memory owned by thread. */
 	struct supplemental_page_table spt;
+/* ------------------------------------------------------------ PROJECT3 : Virtual Memory - Stack Growth ------------------------------------------------------------ */
+	void *rsp; // 커널 모드로 전환 시, 현재 유저 스택의 스택 포인터 저장
+/* ------------------------------------------------------------ PROJECT3 : Virtual Memory - Stack Growth ------------------------------------------------------------ */
 #endif
 
 	/* Owned by thread.c. */

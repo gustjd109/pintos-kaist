@@ -35,6 +35,15 @@ unsigned tell (int fd); // 열린 파일의 위치(offset)를 알려주는 시�
 void close (int fd);  // 열린 파일을 닫는 시스템 콜 함수 선언
 /* -------------------------------------------------------- PROJECT2 : User Program - System Call -------------------------------------------------------- */
 
+/* -------------------------------------------------------- PROJECT3 : Virtual Memory - Memory Mapped Files -------------------------------------------------------- */
+#include "vm/vm.h"
+/* -------------------------------------------------------- PROJECT3 : Virtual Memory - Memory Mapped Files -------------------------------------------------------- */
+
+/* -------------------------------------------------------- PROJECT3 : Virtual Memory - Memory Mapped Files -------------------------------------------------------- */
+void *mmap (void *addr, size_t length, int writable, int fd, off_t offset);
+void munmap (void *addr);
+/* -------------------------------------------------------- PROJECT3 : Virtual Memory - Memory Mapped Files -------------------------------------------------------- */
+
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
 
@@ -72,6 +81,11 @@ void
 syscall_handler (struct intr_frame *f UNUSED) {
 /* -------------------------------------------------------- PROJECT2 : User Program - System Call -------------------------------------------------------- */
 	int system_call_number = f->R.rax; // 호출한 시스템 콜 번호를 저장하는 변수 선언
+/* ------------------------------------------------------------ PROJECT3 : Virtual Memory - Stack Growth ------------------------------------------------------------ */
+#ifdef VM
+	thread_current ()->rsp = f->rsp; // 커널 모드로 전환 시, syscall_handler() 함수에서 스택 포인터 저장
+#endif
+/* ------------------------------------------------------------ PROJECT3 : Virtual Memory - Stack Growth ------------------------------------------------------------ */
 	switch(system_call_number) {
 		case SYS_HALT :
 			halt ();
@@ -115,6 +129,14 @@ syscall_handler (struct intr_frame *f UNUSED) {
 		case SYS_CLOSE :
 			close (f->R.rdi);
 			break;
+/* -------------------------------------------------------- PROJECT3 : Virtual Memory - Memory Mapped Files -------------------------------------------------------- */
+		case SYS_MMAP:
+			f->R.rax = mmap(f->R.rdi, f->R.rsi, f->R.rdx, f->R.r10, f->R.r8);
+			break;
+		case SYS_MUNMAP:
+			munmap(f->R.rdi);
+			break;
+/* -------------------------------------------------------- PROJECT3 : Virtual Memory - Memory Mapped Files -------------------------------------------------------- */
 		default :
 			exit (-1);
 			break;
@@ -130,9 +152,13 @@ syscall_handler (struct intr_frame *f UNUSED) {
 void
 check_address (void *addr) {
 	// 현재 접근하는 메모리 주소가 NULL이거나, 커널 영역에서 사용하는 주소이거나, 유저 영역에서 사용하는 주소이지만 페이지로 할당되지 않은 주소일 경우(=잘못된 접근)
-	if (addr == NULL || is_kernel_vaddr(addr) || pml4_get_page (thread_current ()->pml4, addr) == NULL) {
+	// if (addr == NULL || is_kernel_vaddr(addr) || pml4_get_page (thread_current ()->pml4, addr) == NULL) {
+	// 	exit (-1); // 프로세스 종료
+	// }
+	if (addr == NULL)
 		exit (-1); // 프로세스 종료
-	}
+	if (!is_user_vaddr(addr))
+		exit(-1);
 }
 
 /* 현재 프로세스의 파일 디스크립터 테이블에 파일을 추가하는 함수 */
@@ -192,7 +218,7 @@ void
 exit (int status) {
 	struct thread *cur = thread_current (); // 실행중인 현재 스레드 구조체를 curr에 저장
 	cur->exit_status = status; // 현재 스레드 종료 상태 저장(0이면 정상 종료)
-	printf("%s: exit(%d)\n", thread_name (), status); // 프로세스 종료 메시지 출력
+	printf("%s: exit(%d)\n", cur->name, status); // 프로세스 종료 메시지 출력
 	thread_exit (); // 스레드 종료
 }
 
@@ -206,7 +232,7 @@ fork (const char *thread_name, struct intr_frame *f) {
 int
 exec (const char *file) {
 	check_address (file); // 현재 가리키는 주소가 유저 영역의 주소인지 확인하여, 잘못된 주소이면 프로세스 종료
-	char *fn_copy = palloc_get_page (PAL_ZERO); // 커널 풀에서 페이지를 가져와 페이지를 0으로 채우고, 사용 가능한 페이지가 없으면 NULL 포인터 반환
+	char *fn_copy = palloc_get_page (0); // 커널 풀에서 페이지를 가져와 페이지를 0으로 채우고, 사용 가능한 페이지가 없으면 NULL 포인터 반환
 
 	// 메모리 할당 실패 시, 프로세스 종료
 	if(fn_copy == NULL)
@@ -229,8 +255,11 @@ wait (int pid) {
 /* 파일을 생성하는 시스템 콜 함수 */
 bool
 create (const char *file, unsigned initial_size) {
+	lock_acquire(&filesys_lock);
 	check_address (file); // 현재 가리키는 주소가 유저 영역의 주소인지 확인하여, 잘못된 주소이면 프로세스 종료
-	return filesys_create (file, initial_size); // 파일 이름(file)과 크기(initial_size)에 해당하는 파일 생성(성공하면 True, 실패하면 False 반환)
+	bool success = filesys_create (file, initial_size); // 파일 이름(file)과 크기(initial_size)에 해당하는 파일 생성(성공하면 True, 실패하면 False 반환)
+	lock_release(&filesys_lock);
+	return success;
 }
 
 /* 파일을 삭제하는 시스템 콜 함수 */
@@ -244,10 +273,12 @@ remove (const char *file) {
 int
 open (const char *file) {
 	check_address (file); // 현재 가리키는 주소가 유저 영역의 주소인지 확인하여, 잘못된 주소이면 프로세스 종료
+	lock_acquire(&filesys_lock);
 	struct file *open_file = filesys_open (file); // filesys_open() 함수를 이용하여 파일 오픈
 
 	// 파일을 찾지 못하거나 내부 메모리 할당에 실패하여 파일을 열 수 없는 경우 -1 반환
 	if (open_file == NULL) {
+		lock_release(&filesys_lock);
 		return -1;
 	}
 
@@ -257,6 +288,7 @@ open (const char *file) {
 	if (fd == -1) {
 		file_close (open_file);
 	}
+	lock_release(&filesys_lock);
 
 	return fd; // fd 반환
 }
@@ -311,6 +343,14 @@ read (int fd, void *buffer, unsigned size) {
             return -1;
         }
 
+/* -------------------------------------------------------- PROJECT3 : Virtual Memory - Memory Mapped Files -------------------------------------------------------- */
+		struct page *page = spt_find_page(&thread_current()->spt, buffer);
+		if (page && !page->writable)
+		{
+			exit(-1);
+		}
+/* -------------------------------------------------------- PROJECT3 : Virtual Memory - Memory Mapped Files -------------------------------------------------------- */
+
         lock_acquire (&filesys_lock); // 열린 파일의 데이터를 읽고 버퍼에 저장하는 과정에서 다른 파일의 접근을 막기 위해 lock 획득
         read_byte = file_read (read_file, buffer, size); // 파일에서 현재 위치부터 size 바이트 만큼 데이터를 읽어서 버퍼에 저장하는 file_read() 함수 호출
         lock_release (&filesys_lock); // 열린 파일의 데이터를 읽고 버퍼에 저장을 완료하면 lock 해제
@@ -332,7 +372,7 @@ write (int fd, const void *buffer, unsigned size) {
 	}
 
 	else {
-		// fdrk 0인 경우(STDIN) -1 반환
+		// fd가 0인 경우(STDIN) -1 반환
 		if (fd < 2) {
 			return -1;
 		}
@@ -391,3 +431,36 @@ close (int fd) {
 	remove_file_from_fdt (fd); // remove_file_from_fdt() 함수를 이용하여 닫은 파일 삭제
 }
 /* -------------------------------------------------------- PROJECT2 : User Program - System Call -------------------------------------------------------- */
+
+/* -------------------------------------------------------- PROJECT3 : Virtual Memory - Memory Mapped Files -------------------------------------------------------- */
+/* 인자로 받은 내용을 검사하고 적합한 접근이면 do_mmap() 함수를 호출하는 함수 */
+void
+*mmap (void *addr, size_t length, int writable, int fd, off_t offset) {
+	if (!addr || addr != pg_round_down(addr))
+        return NULL;
+
+    if (offset != pg_round_down(offset))
+        return NULL;
+
+    if (!is_user_vaddr(addr) || !is_user_vaddr(addr + length))
+        return NULL;
+
+    if (spt_find_page(&thread_current()->spt, addr))
+        return NULL;
+
+    struct file *f = find_file_by_fd(fd);
+    if (f == NULL)
+        return NULL;
+
+    if (file_length(f) == 0 || (int)length <= 0)
+        return NULL;
+
+    return do_mmap(addr, length, writable, f, offset);
+}
+
+/* 매핑을 해제하는 do_munmap() 함수를 호출하는 함수 */
+void
+munmap (void *addr) {
+	do_munmap(addr);
+}
+/* -------------------------------------------------------- PROJECT3 : Virtual Memory - Memory Mapped Files -------------------------------------------------------- */

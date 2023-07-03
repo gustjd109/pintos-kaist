@@ -711,7 +711,9 @@ void
 test_max_priority (void) {
 	// Ready_list가 비어있지 않고, ready_list에서 우선순위가 가장 높은 스레드보다 현재 스레드의 우선순위가 더 작은 경우
 	if(!list_empty (&ready_list) && ((thread_current ()->priority) < (list_entry(list_front (&ready_list), struct thread, elem)->priority))) {
+		if (!intr_context()) {
 			thread_yield (); // thread_yield() 함수를 호출하여 현재 스레드의 CPU를 양보
+		}
 	}
 }
 /* ready 리스트에 있는 스레드와 현재 스레드의 우선순위를 비교하는 함수 */
